@@ -209,6 +209,11 @@ async function run() {
                 // 运行app-tool，添加版本和fid
                 let fid = get_step_arg(service.name, PublishStep.Upload)
                 let app_version = version + "-preview";
+
+                if (!/^[a-zA-Z0-9._-]+$/.test(app_version) || !/^[a-zA-Z0-9._-]+$/.test(fid)) {
+                    throw new Error("Invalid characters detected in version or fid");
+                }
+                
                 let cmd = `app-tool app set -v ${app_version} -s ${fid} ${service.id} -o ${repo_path}`;
                 console.log("will run app tool cmd:", cmd)
                 child_process.execSync(cmd, { cwd: 'dist', stdio: 'inherit' })

@@ -1,5 +1,28 @@
 const fs = require('fs')
 const child_process = require('child_process');
+
+function validateSecurity(input, name) {
+    const safeRegex = /^[a-zA-Z0-9._-]+$/;
+    if (input && !safeRegex.test(String(input))) {
+        console.error(`[SECURITY FATAL] Invalid characters in ${name}`);
+        process.exit(1); 
+    }
+}
+
+const targets_raw = process.argv[2] || ""
+const type_raw = process.argv[3] || ""
+const buildnumber = process.argv[4] || "0"
+const channel = process.argv[5] || "nightly"
+
+// 校验原始输入，防止注入字符进入拼接逻辑
+validateSecurity(buildnumber, "buildnumber");
+validateSecurity(channel, "channel");
+targets_raw.split(";").forEach(t => t && validateSecurity(t, "targets"));
+type_raw.split(";").forEach(t => t && validateSecurity(t, "type"));
+
+const targets = targets_raw.split(";")
+const type = type_raw.split(";")
+
 const targets = process.argv[2].split(";")
 const type = process.argv[3].split(";")
 const { apps, services, step_file } = require('./build_config')
@@ -210,9 +233,9 @@ async function run() {
                 let fid = get_step_arg(service.name, PublishStep.Upload)
                 let app_version = version + "-preview";
 
-                if (!/^[a-zA-Z0-9._-]+$/.test(app_version) || !/^[a-zA-Z0-9._-]+$/.test(fid)) {
-                    throw new Error("Invalid characters detected in version or fid");
-                }
+                validateSecurity(app_version, "app_version");
+                validateSecurity(fid, "fid");
+                validateSecurity(service.id, "service.id");
                 
                 let cmd = `app-tool app set -v ${app_version} -s ${fid} ${service.id} -o ${repo_path}`;
                 console.log("will run app tool cmd:", cmd)

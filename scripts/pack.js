@@ -1,28 +1,5 @@
 const fs = require('fs')
 const child_process = require('child_process');
-
-function validateSecurity(input, name) {
-    const safeRegex = /^[a-zA-Z0-9._-]+$/;
-    if (input && !safeRegex.test(String(input))) {
-        console.error(`[SECURITY FATAL] Invalid characters in ${name}`);
-        process.exit(1); 
-    }
-}
-
-const targets_raw = process.argv[2] || ""
-const type_raw = process.argv[3] || ""
-const buildnumber = process.argv[4] || "0"
-const channel = process.argv[5] || "nightly"
-
-// 校验原始输入，防止注入字符进入拼接逻辑
-validateSecurity(buildnumber, "buildnumber");
-validateSecurity(channel, "channel");
-targets_raw.split(";").forEach(t => t && validateSecurity(t, "targets"));
-type_raw.split(";").forEach(t => t && validateSecurity(t, "type"));
-
-const targets = targets_raw.split(";")
-const type = type_raw.split(";")
-
 const targets = process.argv[2].split(";")
 const type = process.argv[3].split(";")
 const { apps, services, step_file } = require('./build_config')
@@ -31,6 +8,11 @@ const assert = require('assert');
 
 const buildnumber = process.argv[4] || "0"
 const channel = process.argv[5] || "nightly"
+
+if (!/^\d+$/.test(buildnumber)) {
+    console.error('invalid buildnumber')
+    process.exit(1)
+}
 
 if (!fs.existsSync('Cargo.toml')) {
     console.error('cannot find Cargo.toml in cwd! check working dir')
@@ -148,7 +130,12 @@ if (!file_repo_path) {
 }
 
 function get_obj_id(desc_file) {
-    let out = child_process.execSync(`${path.join('dist', 'desc-tool')} show ${desc_file}`, {encoding: 'utf8'})
+    let out = child_process.execFileSync(
+        path.join('dist', 'desc-tool'),
+        ['show', desc_file],
+        { encoding: 'utf8' }
+    )
+
     let obj_id
     for (const line of out.split('\n')) {
         if (line.startsWith('objectid:')) {
@@ -216,14 +203,22 @@ async function run() {
                         }
                     }
 
-                    child_process.execSync(`bash -c "./pack-tools -d services/${service.name}/${target}"`, { cwd: 'dist', stdio: 'inherit' })
+                    child_process.execFileSync(
+                        'bash',
+                        ['-c', './pack-tools -d "$1"', 'bash', `services/${service.name}/${target}`],
+                        { cwd: 'dist', stdio: 'inherit' }
+                    )
                     fs.rmSync(`dist/services/${service.name}/${target}`, {recursive: true, force: true});
                 }
                 set_step(service.name, PublishStep.Pack)
             }
 
             if (need_step(service.name, PublishStep.Upload)) {
-                child_process.execSync(`cyfs-client put services/${service.name} -f fid -o ${file_repo_path} --tcp`, { cwd: 'dist', stdio: 'inherit' })
+                child_process.execFileSync(
+                    'cyfs-client',
+                    ['put', `services/${service.name}`, '-f', 'fid', '-o', file_repo_path, '--tcp'],
+                    { cwd: 'dist', stdio: 'inherit' }
+                )
                 let fid = fs.readFileSync('dist/fid', {encoding: 'utf-8'})
                 set_step(service.name, PublishStep.Upload, fid)
             }
@@ -232,14 +227,14 @@ async function run() {
                 // 运行app-tool，添加版本和fid
                 let fid = get_step_arg(service.name, PublishStep.Upload)
                 let app_version = version + "-preview";
-
-                validateSecurity(app_version, "app_version");
-                validateSecurity(fid, "fid");
-                validateSecurity(service.id, "service.id");
-                
                 let cmd = `app-tool app set -v ${app_version} -s ${fid} ${service.id} -o ${repo_path}`;
                 console.log("will run app tool cmd:", cmd)
-                child_process.execSync(cmd, { cwd: 'dist', stdio: 'inherit' })
+
+                child_process.execFileSync(
+                    'app-tool',
+                    ['app', 'set', '-v', app_version, '-s', fid, service.id, '-o', repo_path],
+                    { cwd: 'dist', stdio: 'inherit' }
+                )
                 set_step(service.name, PublishStep.SetVersion, version)
             }
 
@@ -258,4 +253,3 @@ run().then(() => {
     fs.rmSync(step_file, {force: true, maxRetries: 3})
     process.exit(0)
 })
-
